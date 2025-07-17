@@ -803,7 +803,7 @@ class VideoProcessorApp(QMainWindow):
         self.processing_thread = None
 
     def closeEvent(self, event):
-        self.save_settings()
+        #self.save_settings()
         if self.processing_thread and self.processing_thread.isRunning():
             self.cancel_processing()
             self.processing_thread.wait()
