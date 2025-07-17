@@ -325,7 +325,7 @@ class ProcessingThread(QThread):
 
     def _download_video(self, output_path):
         self.stage_changed.emit("Step 1/4: Downloading Video")
-        quality_map = {"Best": "bv*+ba/b", "1080p": "bv[height<=1080]+ba/b[height<=1080]", "720p": "bv[height<=720]+ba/b[height<=720]",}
+        quality_map = {"Best": "bv*+ba/b", "1080p": "bv[height<=1080]+ba/b[height<=1080]", "720p": "bv[height<=720]+ba/b[height<=720]","480p": "bv[height<=480]+ba/b[height<=480]"}
         format_selector = quality_map.get(self.options['quality'], 'bv*+ba/b')
         ydl_opts = {'format': format_selector, 'outtmpl': output_path, 'progress_hooks': [self.progress_hook], 'merge_output_format': 'mp4', 'noplaylist': True,}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -430,7 +430,6 @@ class VideoProcessorApp(QMainWindow):
 
     def init_ui(self):
         self.setStyleSheet("""
-            /* ... (stylesheet remains the same, but with tab width change) ... */
             QTabBar::tab {
                 background-color: #3B4252;
                 border: 1px solid #4C566A;
@@ -439,9 +438,8 @@ class VideoProcessorApp(QMainWindow):
                 border-top-right-radius: 6px;
                 padding: 10px 20px;
                 font-weight: bold;
-                min-width: 150px; /* <--- ADDED THIS LINE */
+                min-width: 150px; 
             }
-            /* ... (rest of stylesheet) ... */
             QMainWindow, QWidget {
                 background-color: #2E3440;
                 color: #D8DEE9;
@@ -503,7 +501,7 @@ class VideoProcessorApp(QMainWindow):
             QTabWidget::pane { border: none; }
             QTabBar::tab:selected {
                 background-color: #434C5E;
-                color: #88C0D0;
+                color: #FFFF33;
                 border-bottom: 1px solid #434C5E;
             }
             QTabBar::tab:hover { background-color: #4C566A; }
@@ -544,7 +542,7 @@ class VideoProcessorApp(QMainWindow):
         self.quality_label = QLabel("Video Quality:")
         options_layout.addWidget(self.quality_label, 1, 0)
         self.quality_combo = QComboBox()
-        self.quality_combo.addItems(["Best", "1080p", "720p"])
+        self.quality_combo.addItems(["Best", "1080p", "720p", "480p"])
         options_layout.addWidget(self.quality_combo, 1, 1)
         self.lang_label = QLabel("Original Language:")
         options_layout.addWidget(self.lang_label, 2, 0)
