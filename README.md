@@ -9,7 +9,7 @@
 
 **-- OpenAI Whisper** (github.com/openai/whisper，模型建议选择small）)
 
-**-- DeepSeek API Key** (订阅platform.deepseek.com，并将API Key写在配置文件config.ini中)
+**-- DeepSeek API Key** (订阅platform.deepseek.com，并将API Key在Setting中设置)
 
 **-- FFMpeg**（安装后在PATH环境变量中设定）
 
@@ -27,4 +27,4 @@ python .\youtube-setm.py
 
 ![截屏](/assets/screenshot3.png)
 
-![截屏](/assets/screenshot4.png)
+![音频处理模式截屏](/assets/screenshot4.png)
