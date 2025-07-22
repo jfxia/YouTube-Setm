@@ -410,7 +410,7 @@ class ProcessingThread(QThread):
 class VideoProcessorApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("YouTube Unified Video Processor")
+        self.setWindowTitle("YouTube-Setm")
         self.setGeometry(100, 100, 1000, 800)
         
         # Setup icon
