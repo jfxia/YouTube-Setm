@@ -1,4 +1,4 @@
-# main_app.py
+# youtube-setm.py
 
 import os
 import sys
@@ -225,55 +225,70 @@ class ProcessingThread(QThread):
         self.current_process = None
 
     def run(self):
-        try:
-            self.stage_changed.emit("Getting video information...")
-            self.log_message.emit(f"[INFO] Getting info for URL: {self.options['url']}")
-            
-            ydl_info_opts = {'quiet': True, 'no_warnings': True}
-            with yt_dlp.YoutubeDL(ydl_info_opts) as ydl:
-                info_dict = ydl.extract_info(self.options['url'], download=False)
-
-            self.video_info = {
-                'title': info_dict.get('title', 'Unknown Title'),
-                'uploader': info_dict.get('uploader', 'Unknown Uploader'),
-                'thumbnail': info_dict.get('thumbnail', ''),
-                'duration': info_dict.get('duration', 0)
-            }
-            self.video_info_retrieved.emit(self.video_info)
-            self.options['title'] = self.video_info['title']
-
-            if self._is_cancelled: return
-            
-            if self.options['type'] == 'Audio':
-                self._download_audio()
-            else:
-                self._process_video()
-
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            self.log_message.emit(f"[ERROR] A critical error occurred: {e}")
-            self.finished.emit(False, str(e), "")
+            try:
+                self.stage_changed.emit("Getting video information...")
+                self.log_message.emit(f"[INFO] Getting info for URL: {self.options['url']}")
+    
+                # 增强网络配置
+                ydl_info_opts = {
+                    'quiet': True,
+                    'no_warnings': True,
+                    'no_check_certificate': True,
+                    'retries': 15,
+                    'fragment_retries': 15,
+                    'socket_timeout': 30,
+                    'force_ipv4': True,
+                }
+                with yt_dlp.YoutubeDL(ydl_info_opts) as ydl:
+                    info_dict = ydl.extract_info(self.options['url'], download=False)
+    
+                self.video_info = {
+                    'title': info_dict.get('title', 'Unknown Title'),
+                    'uploader': info_dict.get('uploader', 'Unknown Uploader'),
+                    'thumbnail': info_dict.get('thumbnail', ''),
+                    'duration': info_dict.get('duration', 0)
+                }
+                self.video_info_retrieved.emit(self.video_info)
+                self.options['title'] = self.video_info['title']
+    
+                if self._is_cancelled: return
+    
+                if self.options['type'] == 'Audio':
+                    self._download_audio()
+                else:
+                    self._process_video()
+    
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self.log_message.emit(f"[ERROR] A critical error occurred: {e}")
+                self.finished.emit(False, str(e), "")
 
     def _download_audio(self):
-        self.stage_changed.emit("Step 1/1: Downloading Audio (MP3)")
-        
-        output_tmpl = os.path.join(self.options['output_dir'], '%(title)s.%(ext)s')
-        final_path = os.path.join(self.options['output_dir'], f"{self.options['title']}.mp3")
-        
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': output_tmpl,
-            'progress_hooks': [self.progress_hook],
-            'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192',}],
-            'noplaylist': True,
-        }
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([self.options['url']])
-        
-        if not self._is_cancelled:
-            self.finished.emit(True, "Audio download completed successfully!", final_path)
+            self.stage_changed.emit("Step 1/1: Downloading Audio (MP3)")
+    
+            output_tmpl = os.path.join(self.options['output_dir'], '%(title)s.%(ext)s')
+            final_path = os.path.join(self.options['output_dir'], f"{self.options['title']}.mp3")
+    
+            # 增强网络配置
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'outtmpl': output_tmpl,
+                'progress_hooks': [self.progress_hook],
+                'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192',}],
+                'noplaylist': True,
+                'no_check_certificate': True,
+                'retries': 15,
+                'fragment_retries': 15,
+                'socket_timeout': 30,
+                'force_ipv4': True,
+            }
+    
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([self.options['url']])
+    
+            if not self._is_cancelled:
+                self.finished.emit(True, "Audio download completed successfully!", final_path)
 
     def _process_video(self):
         base_name = re.sub(r'[\\/*?:"<>|]', "", self.options['title'])
@@ -306,11 +321,13 @@ class ProcessingThread(QThread):
 
         self.finished.emit(True, "Video processing completed successfully!", final_video_path)
 
-    def _run_subprocess(self, cmd):
+    def _run_subprocess(self, cmd, cwd=None, env=None):
         self.log_message.emit(f"[CMD] {' '.join(cmd)}")
         self.current_process = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
-            universal_newlines=True, encoding='utf-8', errors='ignore'
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            universal_newlines=True, encoding='utf-8', errors='ignore',
+            cwd=cwd,
+            env=env
         )
         for line in self.current_process.stdout:
             if self._is_cancelled:
@@ -318,24 +335,44 @@ class ProcessingThread(QThread):
                 self.log_message.emit("[INFO] Process terminated by user.")
                 return
             self.log_message.emit(line.strip())
-        
+
         self.current_process.wait()
         if self.current_process.returncode != 0 and not self._is_cancelled:
             raise RuntimeError(f"A subprocess failed with exit code {self.current_process.returncode}.")
 
     def _download_video(self, output_path):
-        self.stage_changed.emit("Step 1/4: Downloading Video")
-        quality_map = {"Best": "bv*+ba/b", "1080p": "bv[height<=1080]+ba/b[height<=1080]", "720p": "bv[height<=720]+ba/b[height<=720]","480p": "bv[height<=480]+ba/b[height<=480]"}
-        format_selector = quality_map.get(self.options['quality'], 'bv*+ba/b')
-        ydl_opts = {'format': format_selector, 'outtmpl': output_path, 'progress_hooks': [self.progress_hook], 'merge_output_format': 'mp4', 'noplaylist': True,}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([self.options['url']])
+            self.stage_changed.emit("Step 1/4: Downloading Video")
+            quality_map = {"Best": "bv*+ba/b", "1080p": "bv[height<=1080]+ba/b[height<=1080]", "720p": "bv[height<=720]+ba/b[height<=720]","480p": "bv[height<=480]+ba/b[height<=480]"}
+            format_selector = quality_map.get(self.options['quality'], 'bv*+ba/b')
+    
+            # 增强网络配置
+            ydl_opts = {
+                'format': format_selector,
+                'outtmpl': output_path,
+                'progress_hooks': [self.progress_hook],
+                'merge_output_format': 'mp4',
+                'noplaylist': True,
+                'no_check_certificate': True,
+                'retries': 15,
+                'fragment_retries': 15,
+                'socket_timeout': 30,
+                'force_ipv4': True,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([self.options['url']])
 
     def _extract_subtitles(self, video_path, srt_path):
         self.stage_changed.emit("Step 2/4: Extracting Subtitles (Whisper)")
         self.progress_update.emit(0, "Initializing Whisper... This may take a while.")
-        cmd = ["whisper", video_path, "--model", self.options['model'], "--language", self.options['language'], "--output_format", "srt", "--output_dir", self.options['output_dir']]
-        self._run_subprocess(cmd)
+    
+        # 强制子进程使用 UTF-8 环境
+        proc_env = os.environ.copy()
+        proc_env['PYTHONUTF8'] = '1'
+    
+        absolute_video_path = os.path.abspath(video_path)
+    
+        cmd = ["whisper", absolute_video_path, "--model", self.options['model'], "--language", self.options['language'], "--output_format", "srt"]
+        self._run_subprocess(cmd, cwd=self.options['output_dir'], env=proc_env)
 
     def _translate_subtitles(self, srt_path, translated_srt_path):
         self.stage_changed.emit("Step 3/4: Translating Subtitles (DeepSeek API)")
@@ -383,9 +420,9 @@ class ProcessingThread(QThread):
     def progress_hook(self, d):
         if self._is_cancelled:
             raise yt_dlp.utils.DownloadCancelled
-        
+
         ansi_escape_pattern = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-        
+
         if d['status'] == 'downloading':
             percent_str_raw = d.get('_percent_str', '0.0%')
             speed_str_raw = d.get('_speed_str', 'N/A')
@@ -395,7 +432,7 @@ class ProcessingThread(QThread):
                 percent = float(percent_str_clean)
                 self.progress_update.emit(int(percent), speed_str_clean)
             except ValueError as e:
-                self.log_message(f"[WARN] Could not parse progress update: {e}")
+                self.log_message.emit(f"[WARN] Could not parse progress update: {e}")
         elif d['status'] == 'finished':
             self.progress_update.emit(100, "Finalizing...")
 
@@ -404,7 +441,6 @@ class ProcessingThread(QThread):
         self.log_message.emit("[ACTION] Cancellation requested by user...")
         if self.current_process:
             self.current_process.terminate()
-
 
 # --- Main Application Window ---
 class VideoProcessorApp(QMainWindow):
