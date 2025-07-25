@@ -59,23 +59,48 @@ def get_video_bitrate(video_path):
     return None
 
 def translate_text_deepseek(text, api_key):
-    """Translates text to Chinese using DeepSeek API."""
     url = "https://api.deepseek.com/v1/chat/completions"
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    
+    system_prompt = """
+    你是一名专业字幕翻译AI，请将日语或英语对白翻译为自然流畅的简体中文，要求：
+    1. 遵守字幕翻译黄金法则：
+       - 口语化：像真实对话一样自然
+       - 时间轴友好：译文长度≈原文（中文可稍短）
+       - 场景感知：自动识别对话发生的场景（如试衣间/餐厅/办公室）
+    2. 智能多义词处理：
+       - 根据上下文选择最贴切的译法
+       - 保留原文情感强度
+    3. 直接输出翻译，不要解释。
+    """
+    
     data = {
         "model": "deepseek-chat",
         "messages": [
-            {"role": "system", "content": "You are a translation assistant. Translate the given English or Japanese text into simplified Chinese. Provide only the direct translation without any explanations."},
-            {"role": "user", "content": text}
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"翻译为中文（保持原句简洁）：{text}"} 
         ],
-        "temperature": 0.2
+        "temperature": 0.25,  
+        "top_p": 0.85,
+        "frequency_penalty": 0.2,  
+        "presence_penalty": 0.1    
     }
-    response = requests.post(url, headers=headers, json=data, timeout=60)
-    response.raise_for_status()
-    return response.json()["choices"][0]["message"]["content"].strip()
+    
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=30)
+        response.raise_for_status()
+        result = response.json()["choices"][0]["message"]["content"].strip()
+        
+        return re.sub(r'^(翻译|译文)[：:]?\s*', '', result)
+    except Exception as e:
+        print(f"Translation Error: {e}")
+        return text
 
 def translate_srt_file(input_srt, output_srt, api_key, log_signal):
-    """Reads an SRT file, translates its content, and writes to a new file."""
+    """Read a SRT file, translate its content, and write to a new file."""
     with open(input_srt, "r", encoding="utf-8") as f:
         lines = f.readlines()
 
@@ -116,7 +141,7 @@ def translate_srt_file(input_srt, output_srt, api_key, log_signal):
         f.writelines(translated_lines)
 
 def clean_youtube_url(url):
-    """Cleans a YouTube URL to its most basic form."""
+    """Clean a YouTube URL to its most basic form."""
     patterns = [
         r'(https?://(?:www\.|m\.|music\.)?youtube\.com/watch\?v=[a-zA-Z0-9_-]+)',
         r'(https?://youtu\.be/[a-zA-Z0-9_-]+)'
