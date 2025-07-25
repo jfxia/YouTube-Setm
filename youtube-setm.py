@@ -58,87 +58,134 @@ def get_video_bitrate(video_path):
     
     return None
 
-def translate_text_deepseek(text, api_key):
+def translate_text_deepseek(text_list, api_key):
+    """
+    Translates a list of texts using the DeepSeek API with a strict JSON format.
+
+    Args:
+        text_list (list): A list of strings to be translated.
+        api_key (str): The DeepSeek API key.
+
+    Returns:
+        list: A list of translated strings.
+
+    Raises:
+        ValueError: If the translation response is invalid, mismatched, or contains an API error.
+    """
     url = "https://api.deepseek.com/v1/chat/completions"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
     }
     
+    # A stricter, more explicit prompt demanding a specific JSON structure.
     system_prompt = """
-    你是一名专业字幕翻译AI，请将日语或英语对白翻译为自然流畅的简体中文，要求：
-    1. 遵守字幕翻译黄金法则：
-       - 口语化：像真实对话一样自然
-       - 时间轴友好：译文长度≈原文（中文可稍短）
-       - 场景感知：自动识别对话发生的场景（如试衣间/餐厅/办公室）
-    2. 智能多义词处理：
-       - 根据上下文选择最贴切的译法
-       - 保留原文情感强度
-    3. 直接输出翻译，不要解释。
+    You are an expert subtitle translator. You will receive a JSON array of strings.
+    Translate each string from Japanese or English into natural, fluent Simplified Chinese.
+    Your response MUST be a single JSON object with a single key named "translations", which contains the JSON array of the translated strings.
+    Do not add any extra content, explanations, or markdown.
+
+    Example Input: ["Hello", "How are you?"]
+    Example Output: {"translations": ["你好", "你怎么样？"]}
     """
     
+    user_content = json.dumps(text_list, ensure_ascii=False)
+
     data = {
         "model": "deepseek-chat",
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"翻译为中文（保持原句简洁）：{text}"} 
+            {"role": "user", "content": user_content} 
         ],
-        "temperature": 0.25,  
+        "temperature": 0.25,
         "top_p": 0.85,
-        "frequency_penalty": 0.2,  
-        "presence_penalty": 0.1    
+        "response_format": {"type": "json_object"}
     }
     
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=30)
+        response = requests.post(url, headers=headers, json=data, timeout=90)
         response.raise_for_status()
-        result = response.json()["choices"][0]["message"]["content"].strip()
         
-        return re.sub(r'^(翻译|译文)[：:]?\s*', '', result)
+        response_text = response.json()["choices"][0]["message"]["content"]
+        parsed_json = json.loads(response_text)
+        
+        if not isinstance(parsed_json, dict):
+            raise ValueError(f"API did not return a JSON object. Response: {response_text}")
+
+        if 'error' in parsed_json:
+            raise ValueError(f"API returned an error: {parsed_json.get('error')}")
+
+        translated_list = parsed_json['translations']
+
+        if not isinstance(translated_list, list):
+            raise ValueError("The 'translations' key did not contain a list.")
+
+        if len(translated_list) != len(text_list):
+            raise ValueError(f"Translation mismatch: Expected {len(text_list)}, got {len(translated_list)}.")
+        
+        return translated_list
+        
+    except (KeyError, TypeError):
+        raise ValueError(f"API response did not contain 'translations' key. Response: {response_text}")
     except Exception as e:
-        print(f"Translation Error: {e}")
-        return text
+        raise ValueError(f"An unexpected error occurred: {e}")
 
 def translate_srt_file(input_srt, output_srt, api_key, log_signal):
-    """Read a SRT file, translate its content, and write to a new file."""
+    """
+    Parses an SRT file, groups entries into batches, translates them using a
+    hybrid batch/fallback method, and writes the translated SRT file.
+    """
     with open(input_srt, "r", encoding="utf-8") as f:
-        lines = f.readlines()
+        content = f.read()
 
-    translated_lines = []
-    text_buffer = []
+    # Use regex to robustly parse SRT file into index, timestamp, and text blocks
+    srt_pattern = re.compile(r'(\d+)\n(\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3})\n([\s\S]*?)(?=\n\n|\Z)', re.MULTILINE)
+    srt_blocks = srt_pattern.findall(content)
+
+    # Extract just the text parts for translation
+    original_texts = [block[2].replace('\n', ' ').strip() for block in srt_blocks]
+    translated_texts = []
     
-    for i, line in enumerate(lines):
-        if re.match(r'^\d+\s*$', line):
-            translated_lines.append(line)
-        elif '-->' in line:
-            translated_lines.append(line)
-        elif not line.strip():
-            if text_buffer:
-                original_text = ' '.join(text_buffer).strip()
-                log_signal.emit(f"[INFO] Translating: {original_text}")
-                try:
-                    translated_text = translate_text_deepseek(original_text, api_key)
-                    translated_lines.append(translated_text + '\n')
-                except Exception as e:
-                    log_signal.emit(f"[ERROR] Translation failed for '{original_text}': {e}")
-                    translated_lines.extend([l + '\n' for l in text_buffer])
-                text_buffer = []
-            translated_lines.append('\n')
-        else:
-            text_buffer.append(line.strip())
+    # Process in batches of 20 to balance speed and API limitations
+    batch_size = 20
+    for i in range(0, len(original_texts), batch_size):
+        batch_originals = original_texts[i:i+batch_size]
+        batch_num = (i // batch_size) + 1
 
-    if text_buffer:
-        original_text = ' '.join(text_buffer).strip()
-        log_signal.emit(f"[INFO] Translating: {original_text}")
         try:
-            translated_text = translate_text_deepseek(original_text, api_key)
-            translated_lines.append(translated_text + '\n')
-        except Exception as e:
-            log_signal.emit(f"[ERROR] Translation failed for '{original_text}': {e}")
-            translated_lines.extend([l + '\n' for l in text_buffer])
+            log_signal.emit(f"[INFO] Translating batch {batch_num} ({len(batch_originals)} entries) via JSON batch mode...")
+            
+            # --- Primary Method: Attempt batch translation ---
+            batch_translated = translate_text_deepseek(batch_originals, api_key)
+            translated_texts.extend(batch_translated)
+            log_signal.emit(f"[INFO] Batch {batch_num} translated successfully.")
 
+        except ValueError as e:
+            # --- Fallback Method: Translate one-by-one if batch fails ---
+            log_signal.emit(f"[WARN] Batch {batch_num} failed: {e}. Falling back to single-line translation for this batch.")
+            
+            fallback_translated_batch = []
+            for j, single_text in enumerate(batch_originals):
+                try:
+                    log_signal.emit(f"[INFO] Fallback: Translating line {i+j+1}...")
+                    
+                    # Call the same function, but with a list containing only one item
+                    single_translation_list = translate_text_deepseek([single_text], api_key)
+                    fallback_translated_batch.append(single_translation_list[0])
+
+                except Exception as single_e:
+                    log_signal.emit(f"[ERROR] Line {i+j+1} failed to translate: {single_e}. Using original text.")
+                    fallback_translated_batch.append(single_text) # Use original on single failure
+            
+            translated_texts.extend(fallback_translated_batch)
+
+    # Write the new SRT file using the original timestamps and new translated text
     with open(output_srt, "w", encoding="utf-8") as f:
-        f.writelines(translated_lines)
+        for i, block in enumerate(srt_blocks):
+            if i < len(translated_texts):
+                f.write(f"{block[0]}\n")      # Index
+                f.write(f"{block[1]}\n")      # Timestamp
+                f.write(f"{translated_texts[i]}\n\n") # Translated text
 
 def clean_youtube_url(url):
     """Clean a YouTube URL to its most basic form."""
